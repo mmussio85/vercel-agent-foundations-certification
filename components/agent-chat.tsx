@@ -33,15 +33,42 @@ import type { SearchProductsToolInvocation, ShoppingAgentUIMessage, ProductDetai
 import { AgentProductList } from "./agent-product-list";
 import { AgentProductCard } from "./agent-product-card";
 
+import { WorkflowChatTransport } from "@workflow/ai";
+import { useMemo } from "react";
 
 export function AgentChat() {
   const [input, setInput] = useState("");
-  const { messages, error, sendMessage } = useChat<ShoppingAgentUIMessage>(); 
+  
+  const activeRunId = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    return localStorage.getItem("active-workflow-run-id") ?? undefined;
+  }, []);
+  
+  const { messages, error, sendMessage } = useChat<ShoppingAgentUIMessage>({ 
+    resume: Boolean(activeRunId),
+    transport: new WorkflowChatTransport({
+      api: "/api/chat",
+      onChatSendMessage: (response) => {
+        const runId = response.headers.get("x-workflow-run-id");
+        if (runId) localStorage.setItem("active-workflow-run-id", runId);
+      },
+      onChatEnd: () => localStorage.removeItem("active-workflow-run-id"),
+      prepareReconnectToStreamRequest: ({ api, ...rest }) => {
+        const runId = localStorage.getItem("active-workflow-run-id");
+        if (!runId) throw new Error("No active workflow run ID found");
+        return { ...rest, api: `/api/chat/${encodeURIComponent(runId)}/stream` };
+      },
+    }),
+  });
   
   const handleSubmit = (message: PromptInputMessage) => { 
     sendMessage({ text: input }); 
     setInput(""); 
   }; 
+
+  
+
+
 
   if (error) return <div>{error.message}</div>; 
 
